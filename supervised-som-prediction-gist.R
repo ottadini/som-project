@@ -1,5 +1,6 @@
 # ===== #
-library(kohonen)
+suppressPackageStartupMessages(library(kohonen))
+suppressPackageStartupMessages(library(ggplot2))
 # Set root data directory 
 root_dir <- "~/Documents/DATA/Conductivity/SOM_project"
 setwd(root_dir)
@@ -20,25 +21,22 @@ testing <- scale(somdata[-inTrain, ],
 # Supervised kohonen map, where the dependent variable is MEAS_TC (somdata[1]).
 somX <- training
 somY <- training[, 1]
-somdata.xyf <- xyf(data=training, Y=somY, contin=TRUE, rlen=500, 
+somdata.xyf <- xyf(data=somX, Y=somY, contin=TRUE, rlen=500, 
                    xweight=0.2, grid=somgrid(5, 5, "hexagonal"))
 
 
-# Follow example from Wehrens & Buydens 2007 page 9:
-tc.xyf <- predict(somdata.xyf, newdata=testing)$prediction  # Y codebook vectors
-tc.predict <- as.numeric(tc.xyf)
-
-# Basic plots:
+# Figure 1. Training progress:
 plot(somdata.xyf, type="changes")  # Seems to be converging.
 
-plot(somdata.xyf, 
-     type="property", 
-     property=tc.predict, 
-     main="Prediction of TC")  # Not sure what to make of this.
+# Figure 2. Codebook vectors
+op <- par(mfrow=c(1, 2))
+plot(somdata.xyf, type="codes")
+par(op)
 
-# Other properties / component planes:
-op <- par(mfrow=c(2, 3))  # 6 plots
-for (i in 1:dim(somdata.xyf$codes$X)[2]) {
+# Figure 3. All component planes:
+cols <- ncol(somdata.xyf$codes$X)
+op <- par(mfrow=c(ceiling(cols/2), 2))
+for (i in 1:cols) {
     plot(somdata.xyf,
          type="property",
          property=somdata.xyf$codes$X[, i],
@@ -47,44 +45,44 @@ for (i in 1:dim(somdata.xyf$codes$X)[2]) {
 par(op)
 
 
-# Compare measured observations to predicted values of xyf map:
-op <- par(mfrow=c(1,1))
-x <- seq(nrow(testing))
-plot(x, testing[, "MEAS_TC"], type="l", col="black", ylim=c(-2, 2))
-par(new=TRUE)
-plot(x, tc.predict, type="l", col="red", ylim=c(-2, 2))
-par(op)
+# Figure 4. Property plot (prediction)
+# Follow example from Wehrens & Buydens 2007 page 9:
+tc.xyf <- predict(somdata.xyf, newdata=testing)$prediction  # Y codebook vectors
+tc.predict <- as.numeric(tc.xyf)  # It's numeric anyway, but following blindly...
+plot(somdata.xyf, 
+     type="property", 
+     property=tc.predict, 
+     main="Prediction of TC")  # Not sure what to make of this.
 
-# Plot of codebook vectors
-op <- par(mfrow=c(1, 2))
-plot(somdata.xyf, type="codes")
-par(op)
 
+# Figure 5. Crudely compare measurements to predicted values:
+# Un-scale() the predicted tc:
+SD <- attr(testing, 'scaled:scale')[["MEAS_TC"]]
+Mean <- attr(testing, 'scaled:center')[["MEAS_TC"]]
+tc.predict.descale <- sapply(tc.predict, function(x) x * SD + Mean)
 # Pre-scaled (original) meas_tc data:
 meas.tc.testing <- somdata[-inTrain, "MEAS_TC"]
 
-# Un-scale() the predicted tc:
-sd <- attr(testing, 'scaled:scale')[["MEAS_TC"]]
-decentre <- attr(testing, 'scaled:center')[["MEAS_TC"]]
-tc.predict.descale <- sapply(tc.predict, function(x) x * descale + decentre)
-
 # Basic plot of measured vs predictions:
+x <- seq(nrow(testing))
 op <- par(mfrow=c(1, 1))
 plot(x, meas.tc.testing, type="l", col="black", ylim=c(0, 3))
 par(new=TRUE)
 plot(x, tc.predict.descale, type="l", col="red", ylim=c(0, 3))
+title(paste(strwrap("Comparison of testing set to predicted value of thermal conductivity"), collapse="\n"))
 par(op)
 
-
-var(meas.tc.testing)
-var(tc.predict.descale)
-cor(meas.tc.testing, tc.predict.descale, method="kendall")
-cor(meas.tc.testing, tc.predict.descale, method="spearman")
-cov(meas.tc.testing, tc.predict.descale)
-
-RMS <- function(num) sqrt(sum(num^2)/length(num))
-
-RMS(meas.tc.testing)
-RMS(tc.predict.descale)
+# Some statistical measures, but what will tell me how close the predictions
+# come to the observations??
+# var(meas.tc.testing)
+# var(tc.predict.descale)
+# cor(meas.tc.testing, tc.predict.descale, method="kendall")
+# cor(meas.tc.testing, tc.predict.descale, method="spearman")
+# cov(meas.tc.testing, tc.predict.descale)
+# 
+# RMS <- function(num) sqrt(sum(num^2)/length(num))
+# 
+# RMS(meas.tc.testing)
+# RMS(tc.predict.descale)
 
 # ===== #
