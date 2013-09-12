@@ -1,0 +1,64 @@
+\documentclass[a4paper]{scrartcl}
+
+\begin{document}
+
+<<all_of_it>>=
+
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# See: http://www.r-statistics.com/2013/08/k-means-clustering-from-r-in-action/
+# Explains a way to determine a good number of clusters to specify for k-means.
+# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# thermal conductivity + well-log data set k-means clustering (100 observations)
+
+# Unlike hierarchical clustering, K-means clustering requires that the number of
+# clusters to extract be specified in advance. Again, the NbClust package can be
+# used as a guide. Additionally, a plot of the total within-groups sums of
+# squares against the number of clusters in a K-means solution can be helpful. A
+# bend in the graph can suggest the appropriate number of clusters. The graph
+# can be produced by the following function.
+par(mfrow=c(1, 1))
+
+wrap <- function(string){
+    paste(strwrap(string), collapse="\n")
+}
+
+wssplot <- function(data, nc=15, seed=1234){
+    wss <- (nrow(data)-1)*sum(apply(data,2,var))
+    for (i in 2:nc){
+        set.seed(seed)
+        wss[i] <- sum(kmeans(data, centers=i)$withinss)}
+    plot(1:nc, wss, type="b", xlab="Number of Clusters",
+         ylab="Within groups sum of squares")}
+
+
+# 1 standardise data
+df <- read.csv("~/Documents/DATA/Conductivity/SOM_project/som_set_02.csv", 
+               na.strings=c(".", "NA", "", "?"), 
+               strip.white=TRUE, encoding="UTF-8")
+df <- scale(df[, c(2, 3, 6, 7, 8)])
+
+# 2 determine number of clusters
+wssplot(df, nc=10)
+# Figure 1. Plot the within groups sums of squares vs. the number of clusters
+# extracted. It's a fuzzy output, with possibly 4 or 7 clusters suggested.
+
+# NbClust package to test ideal cluster number
+library(NbClust)
+nc <- NbClust(df, min.nc=2, max.nc=10, method="kmeans")
+
+# The following table prints out the best number of clusters proposed by each
+# index, and the corresponding index value.
+# Very strongly suggests 3 clusters:
+table(nc$Best.n[1, ])
+
+# The following plot represents the preceding table in a bar plot:
+par(mfrow=c(1, 1))
+barplot(table(nc$Best.n[1, ]), 
+        xlab="Numer of Clusters", ylab="Tally of Criteria",
+        main=paste(strwrap("Tally of number of Clusters Chosen by 30 Criteria"), collapse="\n"))
+@
+
+
+
+\end{document}

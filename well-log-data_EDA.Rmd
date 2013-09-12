@@ -1,0 +1,133 @@
+Cluster analysis and EDA of primary well-log data
+========================================================
+
+The data are suited to a partitioning type of cluster analysis, but I don't have a preconception (a priori) of the number of clusters the data will display. Typically with partition-type cluster analysis, e.g. k-means, you must specify the number, but we can try out a sequence of cluster numbers, and see which has the best goodness-of-fit (see wssplot below). 
+
+The "goodness-of-fit" criterion (also called "stress") is generally some measure of within-cluster homogeneity versus among-cluster heterogeneity, often measured by the distance of each plot to the center of the cluster to which it belongs, compared to the average distance to other clusters.
+
+In practice, you often don't know the number of clusters a priori, and the approach adopted is to cluster at a range of values, comparing the stress values to find the best partition. Often, clustering with the same number of clusters but a different initial guess will lead to a different final partition, so replicates at each level are often required. 
+
+Load a subset of the full data set, picking only observations with the essential well-logs: GR, SP, SN, SN, NEUT:
+
+```{r message=FALSE, warning=FALSE}
+library(sqldf)
+setwd("~/Documents/DATA/Conductivity/SOM_project/")
+fname <- 'subset_all_data.csv'
+query <- 'select Strat, Borehole, GR, SP, SN, LN, NEUT from file where GR > 0 AND SP > 0 AND SN > 0 AND LN > 0 AND NEUT > 0'
+df <- read.csv.sql(fname, sql=query, eol='\n', stringsAsFactors=TRUE)
+# Convert -999.25 to NA
+df[df==-999.25] <- NA
+summary(df)
+
+# Subset and scale
+dfs <- df
+dfs[, c("GR", "SP", "SN", "LN", "NEUT")] <- scale(df[, c("GR", "SP", "SN", "LN", "NEUT")])
+mysample <- dfs[sample(nrow(dfs), size=5000), ]
+summary(mysample)
+```
+
+# Determine best number of clusters that fit the data, with k-means:
+
+```{r message=FALSE, warning=FALSE}
+# Determine number of clusters method 1 (k-means iterations)
+# Plot within groups sum of squares from kmeans iterations:
+wssplot <- function(data, nc=15, seed=1234, ...){
+    wss <- (nrow(data)-1)*sum(apply(data,2,var))
+    for (i in 2:nc){
+        set.seed(seed)
+        wss[i] <- sum(kmeans(data, centers=i)$withinss)}
+    plot(1:nc, wss, type="b", xlab="Number of Clusters",
+         ylab="Within groups sum of squares", ...)}
+
+# Compare subsample with full data set:
+wssplot(dfs[, c("GR", "SP", "SN", "LN", "NEUT")]) 
+par(new=TRUE)
+wssplot(mysample[, c("GR", "SP", "SN", "LN", "NEUT")], col="red") 
+# Figure 1. Plot the within groups sums of squares vs. the number of clusters
+# extracted.
+
+# Some guidance here: http://www.rdatamining.com/docs
+
+```
+
+# Density-based clustering: DBSCAN
+
+The idea of density-based clustering is to group objects into one cluster if they are connected to one another by densely populated area. There are two key parameters in DBSCAN:
+
+- eps: reachability distance, which defines the size of neighborhood; and
+- MinPts: minimum number of points.
+
+If the number of points in the neighborhood of point *alpha* is no less than `MinPts`, then *alpha* is a _dense point_ . All the points in its neighborhood are _density-reachable_ from *alpha* and are put into the same cluster as *alpha*.
+
+```{r message=FALSE, warning=FALSE}
+# Example of DBSCAN
+# I don't know how these levers of eps and MinPts really affect the result.
+# Reading here: http://www.vitavonni.de/blog/201211/2012110201-dbscan-and-optics-clustering.html
+# MinPts parameter roughly controls the minimum size of a cluster. Too low and everything becomes a cluster. Too high and there won't be any clusters, only noise.
+# MinPts can be initially estimated by this rule of thumb: if you expect your clusters to contain about 100 objects, start with 10 or 20. If you expect them to have 10000 object, start experimenting with 500. (ben - I don't understand why this is)
+# The epsilon parameter (is some sort of radius, or reachability distance) is hard to estimate. The data may have an inherent value that makes sense. 
+library(fpc)
+dbc <- dbscan(mysample[, c("GR", "SP", "SN", "LN", "NEUT")], eps=0.8, MinPts=8)
+plot(dbc, mysample[, c("GR", "SP", "SN", "LN", "NEUT")])
+
+# Plot centroids against first 2 discriminant functions:
+plotcluster(mysample[, c("GR", "SP", "SN", "LN", "NEUT")], dbc$cluster)
+
+# Table of cluster assignments versus Stratigraphy:
+table(mysample$Strat, dbc$cluster)
+# Cluster 0 I think means outliers, or not classified, and it has a few, dominated by 29 from the Traralgon Fm.
+# Cluster 1 contains most of the samples.
+# Clearly picks out the Walhalla Group into cluster 2. Not so clear on the remainder. 
+# there are 3 from Boisdale formation plus 9 from Traralgon Fm in cluster 3.
+# Note the only membership of cluster 4 is 12 from Strzelecki Group.
+```
+
+The results from the DBSCAN routine are not easy to understand. I don't know if vectors are created from the rows of data first, or if the points are all considered individually in n-dimensional space.
+
+# Partitioning around medoids (PAM)
+
+```{r message=FALSE, warning=FALSE}
+# Might try PAM, partitioning around medoids.
+library(fpc)
+pamk.result <- pamk(dfs[, c("GR", "SP", "SN", "LN", "NEUT")], krange=3:10, usepam=FALSE)
+pamk.result$nc
+# Optimum number of clusters:
+nc <- pamk.result$nc
+# Plot
+op <- par(mfrow=c(1, 2))
+plot(pamk.result$pamobject)
+par(op)
+
+# Use the optimum nc from pamk in pam:
+pam.result <- pam(mysample[, c("GR", "SP", "SN", "LN", "NEUT")], k=nc)
+op <- par(mfrow=c(1, 2))
+plot(pam.result)
+par(op)
+# The results of plotting the pamk object highlight one of the problems with visualising high-dimensional data:
+# In this case the two components are I think SP and GR, which were highlighted in the earlier call to the `dbscan` function.
+# That's pretty useless isn't it? It helps to demonstrate that the SOM visualisations are quite handy. 
+```
+
+The left chart is a 2-dimensional clusplot (clustering plot) of the clusters and the pink lines show the distance between clusters. The right one shows their silhouettes. In the silhouette, a large si (almost 1) suggests that the corresponding observations are very well clustered, a small si (around 0) means that the observation lies between two clusters, and observations with a negative si are probably placed in the wrong cluster. 
+
+
+# Model-based clustering
+
+Model based approaches assume a variety of data models and apply maximum likelihood estimation and Bayes criteria to identify the most likely model and number of clusters. Specifically, the Mclust( ) function in the mclust package selects the optimal model according to BIC for EM initialized by hierarchical clustering for parameterized Gaussian mixture models. (phew!). One chooses the model and number of clusters with the largest BIC. See help(mclustModelNames) to details on the model chosen as best. 
+
+```{r}
+library(mclust)
+fit <- Mclust(mysample[, c("GR", "SP", "SN", "LN", "NEUT")])
+plot(fit) # plot results
+summary(fit) # display the best model 
+
+# Display the classifications versus the Stratigraphy:
+table(mysample$Strat, fit$classification)
+
+```
+
+See how the clusters match up with the stratigraphy.
+
+```{r message=FALSE, warning=FALSE}
+
+```
